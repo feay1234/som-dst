@@ -297,7 +297,7 @@ if __name__ == "__main__":
 
 
     parser.add_argument("--seq_num", default=2, type=int)
-    parser.add_argument("--turn_weight", default=0.1, type=int)
+    parser.add_argument("--turn_weight", default=0.1, type=float)
 
     args = parser.parse_args()
     args.train_data_path = os.path.join(args.data_root, args.train_data)
