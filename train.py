@@ -237,7 +237,7 @@ def main(args):
     model.to(device)
 
     model_evaluation(model, test_data_raw, tokenizer, slot_meta, best_epoch, args.op_code,
-                     is_gt_op=False, is_gt_p_state=False, is_gt_gen=False)
+                     is_gt_op=False, is_gt_p_state=False, is_gt_gen=False, save_dir=args.save_dir)
     # model_evaluation(model, test_data_raw, tokenizer, slot_meta, best_epoch, args.op_code,
     #                  is_gt_op=False, is_gt_p_state=False, is_gt_gen=True)
     # model_evaluation(model, test_data_raw, tokenizer, slot_meta, best_epoch, args.op_code,
