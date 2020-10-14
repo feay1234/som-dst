@@ -26,7 +26,8 @@ import time
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-def masked_cross_entropy_for_value(logits, target, pad_idx=0):
+def masked_cross_entropy_for_value(logits, target, turn_weights, pad_idx=0 ):
+    # print(logits.size(), target.size())
     mask = target.ne(pad_idx)
     logits_flat = logits.view(-1, logits.size(-1))
     log_probs_flat = torch.log(logits_flat)
@@ -34,7 +35,11 @@ def masked_cross_entropy_for_value(logits, target, pad_idx=0):
     losses_flat = -torch.gather(log_probs_flat, dim=1, index=target_flat)
     losses = losses_flat.view(*target.size())
     losses = losses * mask.float()
+    i,j,k = losses.size()
+    losses *= turn_weights.repeat_interleave(j*k).reshape(i,j,k)
+    # print(mask)
     loss = losses.sum() / (mask.sum().float())
+    # print(target_flat.size(), losses_flat.size(), losses.size())
     return loss
 
 
@@ -61,7 +66,7 @@ def main(args):
     ontology = json.load(open(args.ontology_data))
     slot_meta, ontology = make_slot_meta(ontology)
     op2id = OP_SET[args.op_code]
-    print(op2id)
+    # print(op2id)
     tokenizer = BertTokenizer(args.vocab_path, do_lower_case=True)
 
     train_data_raw = prepare_dataset(data_path=args.train_data_path,
@@ -69,7 +74,9 @@ def main(args):
                                      slot_meta=slot_meta,
                                      n_history=args.n_history,
                                      max_seq_length=args.max_seq_length,
-                                     op_code=args.op_code)
+                                     op_code=args.op_code,
+                                     turn_weight=args.turn_weight,
+                                     seq_num=args.seq_num)
 
     train_data = MultiWozDataset(train_data_raw,
                                  tokenizer,
@@ -146,7 +153,7 @@ def main(args):
                                   num_workers=args.num_workers,
                                   worker_init_fn=worker_init_fn)
 
-    loss_fnc = nn.CrossEntropyLoss()
+    loss_fnc = nn.CrossEntropyLoss(reduction="none")
     best_score = {'epoch': 0, 'joint_acc': 0, 'op_acc': 0, 'final_slot_f1': 0}
     for epoch in range(args.n_epochs):
         batch_loss = []
@@ -154,7 +161,7 @@ def main(args):
         for step, batch in enumerate(train_dataloader):
             batch = [b.to(device) if not isinstance(b, int) else b for b in batch]
             input_ids, input_mask, segment_ids, state_position_ids, op_ids,\
-            domain_ids, gen_ids, max_value, max_update = batch
+            domain_ids, gen_ids, max_value, max_update, turn_weights = batch
 
             if rng.random() < args.decoder_teacher_forcing:  # teacher forcing
                 teacher = gen_ids
@@ -170,14 +177,25 @@ def main(args):
                                                             max_update=max_update,
                                                             teacher=teacher)
 
+            # print(op_ids.view(-1))
+            # print(gen_scores)
+
             loss_s = loss_fnc(state_scores.view(-1, len(op2id)), op_ids.view(-1))
             loss_g = masked_cross_entropy_for_value(gen_scores.contiguous(),
-                                                    gen_ids.contiguous(),
+                                                    gen_ids.contiguous(), turn_weights,
                                                     tokenizer.vocab['[PAD]'])
+            # there are 30 slots
+            loss_s = loss_s.reshape(turn_weights.size()[0], 30) * turn_weights.repeat_interleave(30).reshape(turn_weights.size()[0], 30)
+            loss_s = loss_s.mean()
+
+
             loss = loss_s + loss_g
             if args.exclude_domain is not True:
-                loss_d = loss_fnc(domain_scores.view(-1, len(domain2id)), domain_ids.view(-1))
+                loss_d = loss_fnc(domain_scores.view(-1, len(domain2id)), domain_ids.view(-1)).mean()
+                # print(turn_weights)
+                # print(loss_s.size(), loss_d.size(), loss_g.size())
                 loss = loss + loss_d
+
             batch_loss.append(loss.item())
 
             loss.backward()
@@ -276,6 +294,10 @@ if __name__ == "__main__":
     parser.add_argument("--max_seq_length", default=256, type=int)
     parser.add_argument("--msg", default=None, type=str)
     parser.add_argument("--exclude_domain", default=False, action='store_true')
+
+
+    parser.add_argument("--seq_num", default=2, type=int)
+    parser.add_argument("--turn_weight", default=0.1, type=int)
 
     args = parser.parse_args()
     args.train_data_path = os.path.join(args.data_root, args.train_data)
