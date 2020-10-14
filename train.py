@@ -154,7 +154,7 @@ def main(args):
                                   worker_init_fn=worker_init_fn)
 
     loss_fnc = nn.CrossEntropyLoss(reduction="none")
-    best_score = {'epoch': 0, 'joint_acc': 0, 'op_acc': 0, 'final_slot_f1': 0}
+    best_score = {'epoch': 0, 'joint_acc': float("-inf"), 'op_acc': 0, 'final_slot_f1': 0}
     for epoch in range(args.n_epochs):
         batch_loss = []
         model.train()
