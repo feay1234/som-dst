@@ -150,6 +150,7 @@ def prepare_dataset(data_path, tokenizer, slot_meta,
 
     isTrain = "train" in data_path
 
+    count = 0
     for dial_dict in dials:
         for domain in dial_dict["domains"]:
             if domain not in EXPERIMENT_DOMAINS:
@@ -256,6 +257,9 @@ def prepare_dataset(data_path, tokenizer, slot_meta,
 
             last_dialog_state = turn_dialog_state
         # break
+        if count > 10:
+            break
+        count += 1
     return data
 
 

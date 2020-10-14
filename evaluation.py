@@ -67,12 +67,13 @@ def main(args):
 
 
 def model_evaluation(model, test_data, tokenizer, slot_meta, epoch, op_code='4',
-                     is_gt_op=False, is_gt_p_state=False, is_gt_gen=False):
+                     is_gt_op=False, is_gt_p_state=False, is_gt_gen=False, save_dir=""):
     model.eval()
     op2id = OP_SET[op_code]
     id2op = {v: k for k, v in op2id.items()}
     id2domain = {v: k for k, v in domain2id.items()}
 
+    jga = []
     slot_turn_acc, joint_acc, slot_F1_pred, slot_F1_count = 0, 0, 0, 0
     final_joint_acc, final_count, final_slot_F1_pred, final_slot_F1_count = 0, 0, 0, 0
     op_acc, op_F1, op_F1_count = 0, {k: 0 for k in op2id}, {k: 0 for k in op2id}
@@ -146,6 +147,10 @@ def model_evaluation(model, test_data, tokenizer, slot_meta, epoch, op_code='4',
 
         if set(pred_state) == set(i.gold_state):
             joint_acc += 1
+            jga.append(1)
+        else:
+            jga.append(0)
+
         key = str(i.id) + '_' + str(i.turn_id)
         results[key] = [pred_state, i.gold_state]
 
@@ -210,8 +215,19 @@ def model_evaluation(model, test_data, tokenizer, slot_meta, epoch, op_code='4',
     print("Final slot turn F1 : ", final_slot_F1_score)
     print("Latency Per Prediction : %f ms" % latency)
     print("-----------------------------\n")
-    json.dump(results, open('preds_%d.json' % epoch, 'w'))
+
+    save_dir = os.path.join(save_dir, 'preds_%d.json' % epoch)
+    json.dump(results, open(save_dir, 'w'))
     per_domain_join_accuracy(results, slot_meta)
+
+    save_dir = os.path.join(save_dir, 'jga_%d.json' % epoch)
+    json.dump(results, open(save_dir, 'w'))
+
+    with open(save_dir, 'w') as f:
+        for item in jga:
+            f.write("%d\n" % item)
+
+    print(np.mean(jga), "feay1234")
 
     scores = {'epoch': epoch, 'joint_acc': joint_acc_score,
               'slot_acc': turn_acc_score, 'slot_f1': slot_F1_score,
