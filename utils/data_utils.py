@@ -255,7 +255,7 @@ def prepare_dataset(data_path, tokenizer, slot_meta,
                         data.append(instance)
 
             last_dialog_state = turn_dialog_state
-        break
+        # break
     return data
 
 
