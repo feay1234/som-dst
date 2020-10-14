@@ -216,14 +216,14 @@ def model_evaluation(model, test_data, tokenizer, slot_meta, epoch, op_code='4',
     print("Latency Per Prediction : %f ms" % latency)
     print("-----------------------------\n")
 
-    save_dir = os.path.join(save_dir, 'preds_%d.json' % epoch)
-    json.dump(results, open(save_dir, 'w'))
+    dir = os.path.join(save_dir, 'preds_%d.json' % epoch)
+    json.dump(results, open(dir, 'w'))
     per_domain_join_accuracy(results, slot_meta)
 
-    save_dir = os.path.join(save_dir, 'jga_%d.json' % epoch)
-    json.dump(results, open(save_dir, 'w'))
+    dir = os.path.join(save_dir, 'jga_%d.json' % epoch)
+    # json.dump(results, open(dir, 'w'))
 
-    with open(save_dir, 'w') as f:
+    with open(dir, 'w') as f:
         for item in jga:
             f.write("%d\n" % item)
 
