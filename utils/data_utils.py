@@ -12,6 +12,7 @@ import random
 import re
 from copy import deepcopy
 from .fix_label import fix_general_label_error
+import collections
 
 flatten = lambda x: [i for s in x for i in s]
 EXPERIMENT_DOMAINS = ["hotel", "train", "restaurant", "attraction", "taxi"]
@@ -139,12 +140,16 @@ def make_slot_meta(ontology):
 
 
 def prepare_dataset(data_path, tokenizer, slot_meta,
-                    n_history, max_seq_length, diag_level=False, op_code='4'):
+                    n_history, max_seq_length, diag_level=False, op_code='4', turn_weight=0, seq_num=0):
     dials = json.load(open(data_path))
     data = []
     domain_counter = {}
     max_resp_len, max_value_len = 0, 0
     max_line = None
+    dia_max_turn = collections.defaultdict(int)
+
+    isTrain = "train" in data_path
+
     for dial_dict in dials:
         for domain in dial_dict["domains"]:
             if domain not in EXPERIMENT_DOMAINS:
@@ -160,7 +165,11 @@ def prepare_dataset(data_path, tokenizer, slot_meta,
             turn_domain = turn["domain"]
             if turn_domain not in EXPERIMENT_DOMAINS:
                 continue
+
             turn_id = turn["turn_idx"]
+
+            turn_loss_weight = 1 + ((len(dial_dict["dialogue"]) - (turn_id + 1)) * turn_weight)  if isTrain else 1
+            # print(turn_loss_weight, turn_weight)
             turn_uttr = (turn["system_transcript"] + ' ; ' + turn["transcript"]).strip()
             dialog_history.append(last_uttr)
             turn_dialog_state = fix_general_label_error(turn["belief_state"], False, slot_meta)
@@ -178,10 +187,75 @@ def prepare_dataset(data_path, tokenizer, slot_meta,
                                         turn_id, turn_uttr, ' '.join(dialog_history[-n_history:]),
                                         last_dialog_state, op_labels,
                                         generate_y, gold_state, max_seq_length, slot_meta,
-                                        is_last_turn, op_code=op_code)
+                                        is_last_turn, op_code=op_code, turn_weight=turn_loss_weight)
+
+            # print(turn_id, len(last_dialog_state), len(gold_state))
+            # print(turn_uttr)
+            # print(last_dialog_state)
+            # print(generate_y)
+            # print(gold_state)
+            # print("----------")
+
             instance.make_instance(tokenizer)
             data.append(instance)
+            if isTrain and seq_num > 0:
+                augment_turn_uttr = turn_uttr[:]
+                augment_op_labels = op_labels[:]
+                augment_generate_y = generate_y[:]
+                augment_gold_state = []
+                for _seq_num in range(1, seq_num + 1):
+                    i = ti + _seq_num
+                    if i < len(dial_dict["dialogue"]):
+                        _turn = dial_dict["dialogue"][i]
+                        _turn_domain = _turn["domain"]
+                        if _turn_domain not in EXPERIMENT_DOMAINS:
+                            continue
+
+                        _turn_uttr = (_turn["system_transcript"] + ' ; ' + _turn["transcript"]).strip()
+
+                        _turn_dialog_state = fix_general_label_error(_turn["belief_state"], False, slot_meta)
+
+                        _op_labels, _generate_y, _gold_state = make_turn_label(slot_meta, last_dialog_state,
+                                                                               _turn_dialog_state,
+                                                                               tokenizer, op_code)
+
+                        augment_gold_state = _gold_state
+                        augment_generate_y.extend(_generate_y)
+
+                        for j in range(len(_op_labels)):
+
+                            if _op_labels[j] == "carryover":
+                                continue
+                            elif augment_op_labels[j] == "carryover":
+                                augment_op_labels[j] = _op_labels[j]
+
+
+                        if (i + 1) == len(dial_dict["dialogue"]):
+                            is_last_turn = True
+                        else:
+                            is_last_turn = False
+
+                        augment_turn_uttr += " ; " + _turn_uttr
+
+                        new_did = "%s_%d_a%d" % (dial_dict["dialogue_idx"], turn_id, _seq_num)
+                        # print(new_did)
+                        instance = TrainingInstance(new_did, turn_domain,
+                                                    turn_id, augment_turn_uttr, ' '.join(dialog_history[-n_history:]),
+                                                    last_dialog_state, augment_op_labels,
+                                                    augment_generate_y, augment_gold_state, max_seq_length, slot_meta,
+                                                    is_last_turn, op_code=op_code, turn_weight=turn_loss_weight)
+
+                        # print(augment_turn_uttr)
+                        # print(last_dialog_state)
+                        # print(augment_generate_y)
+                        # print(augment_gold_state)
+                        # print("----------")
+
+                        instance.make_instance(tokenizer)
+                        data.append(instance)
+
             last_dialog_state = turn_dialog_state
+        break
     return data
 
 
@@ -198,7 +272,8 @@ class TrainingInstance:
                  max_seq_length,
                  slot_meta,
                  is_last_turn,
-                 op_code='4'):
+                 op_code='4',
+                 turn_weight=1):
         self.id = ID
         self.turn_domain = turn_domain
         self.turn_id = turn_id
@@ -213,6 +288,7 @@ class TrainingInstance:
         self.slot_meta = slot_meta
         self.is_last_turn = is_last_turn
         self.op2id = OP_SET[op_code]
+        self.turn_weight = turn_weight
 
     def shuffle_state(self, rng, slot_meta=None):
         new_y = []
@@ -278,7 +354,7 @@ class TrainingInstance:
             word_drop = np.random.binomial(drop_mask.astype('int64'), word_dropout)
             diag = [w if word_drop[i] == 0 else '[UNK]' for i, w in enumerate(diag)]
         input_ = diag + state
-        segment = segment + [1]*len(state)
+        segment = segment + [1] * len(state)
         self.input_ = input_
 
         self.segment_id = segment
@@ -291,14 +367,16 @@ class TrainingInstance:
         input_mask = [1] * len(self.input_)
         self.input_id = tokenizer.convert_tokens_to_ids(self.input_)
         if len(input_mask) < max_seq_length:
-            self.input_id = self.input_id + [0] * (max_seq_length-len(input_mask))
-            self.segment_id = self.segment_id + [0] * (max_seq_length-len(input_mask))
-            input_mask = input_mask + [0] * (max_seq_length-len(input_mask))
+            self.input_id = self.input_id + [0] * (max_seq_length - len(input_mask))
+            self.segment_id = self.segment_id + [0] * (max_seq_length - len(input_mask))
+            input_mask = input_mask + [0] * (max_seq_length - len(input_mask))
 
         self.input_mask = input_mask
         self.domain_id = domain2id[self.turn_domain]
         self.op_ids = [self.op2id[a] for a in self.op_labels]
         self.generate_ids = [tokenizer.convert_tokens_to_ids(y) for y in self.generate_y]
+        self.train_turn_weight = self.turn_weight
+
 
 
 class MultiWozDataset(Dataset):
@@ -339,6 +417,7 @@ class MultiWozDataset(Dataset):
         gen_ids = [b.generate_ids for b in batch]
         max_update = max([len(b) for b in gen_ids])
         max_value = max([len(b) for b in flatten(gen_ids)])
+        turn_weights = torch.tensor([f.train_turn_weight for f in batch], dtype=torch.float)
         for bid, b in enumerate(gen_ids):
             n_update = len(b)
             for idx, v in enumerate(b):
@@ -346,4 +425,4 @@ class MultiWozDataset(Dataset):
             gen_ids[bid] = b + [[0] * max_value] * (max_update - n_update)
         gen_ids = torch.tensor(gen_ids, dtype=torch.long)
 
-        return input_ids, input_mask, segment_ids, state_position_ids, op_ids, domain_ids, gen_ids, max_value, max_update
+        return input_ids, input_mask, segment_ids, state_position_ids, op_ids, domain_ids, gen_ids, max_value, max_update, turn_weights
