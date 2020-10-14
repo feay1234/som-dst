@@ -67,7 +67,7 @@ def main(args):
 
 
 def model_evaluation(model, test_data, tokenizer, slot_meta, epoch, op_code='4',
-                     is_gt_op=False, is_gt_p_state=False, is_gt_gen=False, save_dir=""):
+                     is_gt_op=False, is_gt_p_state=False, is_gt_gen=False, save_dir="",mode="test"):
     model.eval()
     op2id = OP_SET[op_code]
     id2op = {v: k for k, v in op2id.items()}
@@ -216,18 +216,19 @@ def model_evaluation(model, test_data, tokenizer, slot_meta, epoch, op_code='4',
     print("Latency Per Prediction : %f ms" % latency)
     print("-----------------------------\n")
 
-    dir = os.path.join(save_dir, 'preds_%d.json' % epoch)
-    json.dump(results, open(dir, 'w'))
-    per_domain_join_accuracy(results, slot_meta)
+    if mode == "test":
+        dir = os.path.join(save_dir, 'preds_%d.json' % epoch)
+        json.dump(results, open(dir, 'w'))
+        per_domain_join_accuracy(results, slot_meta)
 
-    dir = os.path.join(save_dir, 'jga_%d.json' % epoch)
-    # json.dump(results, open(dir, 'w'))
+        dir = os.path.join(save_dir, 'jga_%d.json' % epoch)
+        # json.dump(results, open(dir, 'w'))
 
-    with open(dir, 'w') as f:
-        for item in jga:
-            f.write("%d\n" % item)
+        with open(dir, 'w') as f:
+            for item in jga:
+                f.write("%d\n" % item)
 
-    print(np.mean(jga), "feay1234")
+    # print(np.mean(jga), "feay1234")
 
     scores = {'epoch': epoch, 'joint_acc': joint_acc_score,
               'slot_acc': turn_acc_score, 'slot_f1': slot_F1_score,

@@ -22,11 +22,10 @@ import os
 import json
 import time
 
-
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-def masked_cross_entropy_for_value(logits, target, turn_weights, pad_idx=0 ):
+def masked_cross_entropy_for_value(logits, target, turn_weights, pad_idx=0):
     # print(logits.size(), target.size())
     mask = target.ne(pad_idx)
     logits_flat = logits.view(-1, logits.size(-1))
@@ -35,8 +34,8 @@ def masked_cross_entropy_for_value(logits, target, turn_weights, pad_idx=0 ):
     losses_flat = -torch.gather(log_probs_flat, dim=1, index=target_flat)
     losses = losses_flat.view(*target.size())
     losses = losses * mask.float()
-    i,j,k = losses.size()
-    losses *= turn_weights.repeat_interleave(j*k).reshape(i,j,k)
+    i, j, k = losses.size()
+    losses *= turn_weights.repeat_interleave(j * k).reshape(i, j, k)
     # print(mask)
     loss = losses.sum() / (mask.sum().float())
     # print(target_flat.size(), losses_flat.size(), losses.size())
@@ -131,7 +130,7 @@ def main(args):
     enc_optimizer_grouped_parameters = [
         {'params': [p for n, p in enc_param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay': 0.01},
         {'params': [p for n, p in enc_param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
-        ]
+    ]
 
     enc_optimizer = AdamW(enc_optimizer_grouped_parameters, lr=args.enc_lr)
     enc_scheduler = WarmupLinearSchedule(enc_optimizer, int(num_train_steps * args.enc_warmup),
@@ -160,7 +159,7 @@ def main(args):
         model.train()
         for step, batch in enumerate(train_dataloader):
             batch = [b.to(device) if not isinstance(b, int) else b for b in batch]
-            input_ids, input_mask, segment_ids, state_position_ids, op_ids,\
+            input_ids, input_mask, segment_ids, state_position_ids, op_ids, \
             domain_ids, gen_ids, max_value, max_update, turn_weights = batch
 
             if rng.random() < args.decoder_teacher_forcing:  # teacher forcing
@@ -185,9 +184,9 @@ def main(args):
                                                     gen_ids.contiguous(), turn_weights,
                                                     tokenizer.vocab['[PAD]'])
             # there are 30 slots
-            loss_s = loss_s.reshape(turn_weights.size()[0], 30) * turn_weights.repeat_interleave(30).reshape(turn_weights.size()[0], 30)
+            loss_s = loss_s.reshape(turn_weights.size()[0], 30) * turn_weights.repeat_interleave(30).reshape(
+                turn_weights.size()[0], 30)
             loss_s = loss_s.mean()
-
 
             loss = loss_s + loss_g
             if args.exclude_domain is not True:
@@ -208,18 +207,18 @@ def main(args):
             if step % 100 == 0:
                 if args.exclude_domain is not True:
                     print("[%d/%d] [%d/%d] mean_loss : %.3f, state_loss : %.3f, gen_loss : %.3f, dom_loss : %.3f" \
-                          % (epoch+1, args.n_epochs, step,
+                          % (epoch + 1, args.n_epochs, step,
                              len(train_dataloader), np.mean(batch_loss),
                              loss_s.item(), loss_g.item(), loss_d.item()))
                 else:
                     print("[%d/%d] [%d/%d] mean_loss : %.3f, state_loss : %.3f, gen_loss : %.3f" \
-                          % (epoch+1, args.n_epochs, step,
+                          % (epoch + 1, args.n_epochs, step,
                              len(train_dataloader), np.mean(batch_loss),
                              loss_s.item(), loss_g.item()))
                 batch_loss = []
 
-        if (epoch+1) % args.eval_epoch == 0:
-            eval_res = model_evaluation(model, dev_data_raw, tokenizer, slot_meta, epoch+1, args.op_code)
+        if (epoch + 1) % args.eval_epoch == 0:
+            eval_res = model_evaluation(model, dev_data_raw, tokenizer, slot_meta, epoch + 1, args.op_code,mode="dev")
             if eval_res['joint_acc'] > best_score['joint_acc']:
                 best_score = eval_res
                 model_to_save = model.module if hasattr(model, 'module') else model
@@ -237,7 +236,7 @@ def main(args):
     model.to(device)
 
     model_evaluation(model, test_data_raw, tokenizer, slot_meta, best_epoch, args.op_code,
-                     is_gt_op=False, is_gt_p_state=False, is_gt_gen=False, save_dir=args.save_dir)
+                     is_gt_op=False, is_gt_p_state=False, is_gt_gen=False, save_dir=args.save_dir, mode="test")
     # model_evaluation(model, test_data_raw, tokenizer, slot_meta, best_epoch, args.op_code,
     #                  is_gt_op=False, is_gt_p_state=False, is_gt_gen=True)
     # model_evaluation(model, test_data_raw, tokenizer, slot_meta, best_epoch, args.op_code,
@@ -252,6 +251,7 @@ def main(args):
     #                  is_gt_op=True, is_gt_p_state=False, is_gt_gen=True)
     # model_evaluation(model, test_data_raw, tokenizer, slot_meta, best_epoch, args.op_code,
     #                  is_gt_op=True, is_gt_p_state=True, is_gt_gen=True)
+
 
 #    feay1234
 
@@ -294,7 +294,6 @@ if __name__ == "__main__":
     parser.add_argument("--max_seq_length", default=256, type=int)
     parser.add_argument("--msg", default=None, type=str)
     parser.add_argument("--exclude_domain", default=False, action='store_true')
-
 
     parser.add_argument("--seq_num", default=2, type=int)
     parser.add_argument("--turn_weight", default=0.1, type=float)
