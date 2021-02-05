@@ -152,6 +152,7 @@ def prepare_dataset(data_path, tokenizer, slot_meta,
 
     count = 0
     for dial_dict in dials:
+        print(dial_dict)
         for domain in dial_dict["domains"]:
             if domain not in EXPERIMENT_DOMAINS:
                 continue
